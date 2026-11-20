@@ -165,7 +165,7 @@ async def _run_and_record(
     query: str,
     request_id: str,
     user_id: str = "student",
-    retry_delays: tuple[int, ...] = (3, 5),
+    retry_delays: tuple[int, ...] = (5, 10, 15, 20),
 ) -> dict:
     rl_plugin = _find_plugin(plugins, RateLimitPlugin)
     in_plugin = _find_plugin(plugins, InputGuardrailPlugin)
@@ -262,10 +262,12 @@ async def run_assignment_suite(pipeline) -> dict:
     if hasattr(safe_runner, "client_kwargs") and isinstance(
         safe_runner.client_kwargs, dict
     ):
-        safe_runner.client_kwargs.setdefault("timeout", 20.0)
+        safe_runner.client_kwargs.setdefault("timeout", 45.0)
         safe_runner.client_kwargs.setdefault("max_retries", 0)
     safe_results: list[dict] = []
     for idx, query in enumerate(_SAFE_QUERIES, start=1):
+        if idx > 1:
+            await asyncio.sleep(3)
         safe_results.append(
             await _run_and_record(
                 agent=safe_agent,
