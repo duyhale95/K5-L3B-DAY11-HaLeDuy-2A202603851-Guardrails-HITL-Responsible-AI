@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import unicodedata
 from pathlib import Path
@@ -264,6 +265,25 @@ async def run_assignment_suite(pipeline) -> dict:
 
     # Test 1: Safe banking queries via create_blue_agent(plugins)
     safe_agent, safe_runner = create_blue_agent(plugins)
+    liquid_key = os.environ.get("LIQUID_API_KEY", "").strip()
+    if liquid_key and not liquid_key.endswith("...") and "your-key" not in liquid_key:
+        liquid_base_url = (
+            os.environ.get("LIQUID_BASE_URL", "https://api.liquid.ai/openai/v1").strip()
+            or "https://api.liquid.ai/openai/v1"
+        )
+        liquid_model = (
+            os.environ.get("LIQUID_MODEL", "lfm3-1.7b").strip() or "lfm3-1.7b"
+        )
+        if hasattr(safe_runner, "client_kwargs") and isinstance(
+            safe_runner.client_kwargs, dict
+        ):
+            safe_runner.client_kwargs["api_key"] = liquid_key
+            safe_runner.client_kwargs["base_url"] = liquid_base_url
+        if hasattr(safe_runner, "model"):
+            safe_runner.model = liquid_model
+        print(
+            f"[CP3] Using Liquid AI direct endpoint: {liquid_model} @ {liquid_base_url}"
+        )
     if hasattr(safe_runner, "client_kwargs") and isinstance(
         safe_runner.client_kwargs, dict
     ):
