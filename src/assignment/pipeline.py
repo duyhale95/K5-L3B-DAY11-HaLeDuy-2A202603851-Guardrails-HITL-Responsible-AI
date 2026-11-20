@@ -186,7 +186,12 @@ async def _run_and_record(
         try:
             response, _ = await chat_with_agent(agent, runner, query)
             break
-        except (openai.RateLimitError, openai.APITimeoutError) as exc:
+        except (
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.InternalServerError,
+            openai.APIConnectionError,
+        ) as exc:
             if (
                 rl_plugin is not None
                 and rl_plugin.blocked_count == rl_before
