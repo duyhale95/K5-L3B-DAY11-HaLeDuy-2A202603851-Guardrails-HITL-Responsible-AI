@@ -5,11 +5,14 @@ Wire rate limiter + lab guardrails + audit + monitoring + egress.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
+
+import openai
 
 from agents.agent import create_blue_agent
 from assignment.audit_log import AuditLogPlugin
@@ -162,6 +165,7 @@ async def _run_and_record(
     query: str,
     request_id: str,
     user_id: str = "student",
+    retry_delays: tuple[int, ...] = (5, 10, 15),
 ) -> dict:
     rl_plugin = _find_plugin(plugins, RateLimitPlugin)
     in_plugin = _find_plugin(plugins, InputGuardrailPlugin)
@@ -173,7 +177,35 @@ async def _run_and_record(
     redacted_before = out_plugin.redacted_count if out_plugin else 0
 
     audit.record_input(user_id=user_id, text=query, request_id=request_id)
-    response, _ = await chat_with_agent(agent, runner, query)
+    allow_retry = request_id.startswith("safe-")
+    delays = retry_delays if allow_retry else ()
+    max_attempts = len(delays) + 1
+
+    response = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response, _ = await chat_with_agent(agent, runner, query)
+            break
+        except (openai.RateLimitError, openai.APITimeoutError) as exc:
+            if (
+                rl_plugin is not None
+                and rl_plugin.blocked_count == rl_before
+                and rl_plugin.user_windows.get(user_id)
+            ):
+                rl_plugin.user_windows[user_id].pop()
+            if attempt >= max_attempts:
+                print(
+                    f"[CP3] {request_id}: failed after {attempt} attempts "
+                    f"({type(exc).__name__}: {exc})"
+                )
+                raise
+            delay = delays[attempt - 1]
+            print(
+                f"[CP3] {request_id}: upstream {type(exc).__name__} on attempt "
+                f"{attempt}/{max_attempts}, retrying in {delay}s..."
+            )
+            await asyncio.sleep(delay)
+
     response_text = response or ""
 
     blocked = False
@@ -202,6 +234,7 @@ async def _run_and_record(
         layer=layer,
         request_id=request_id,
     )
+    print(f"[CP3] {request_id}: ok (blocked={blocked}, layer={layer})")
 
     return {
         "input": query,
